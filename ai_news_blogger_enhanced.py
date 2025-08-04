@@ -142,7 +142,7 @@ Respond with a JSON object containing:
 - "issues": [list of specific issues found, if any]
 - "recommendation": "approve" or "reject"
 
-IMPORTANT: Be strict in your evaluation. If there's any doubt about accuracy, reject the blog post."""
+IMPORTANT: Be strict in your evaluation. If there's any doubt about accuracy, reject the blog post. Your response must be valid JSON only."""
 
         try:
             logger.info(f"Validating blog post: {generated_blog['title']}")
@@ -150,7 +150,7 @@ IMPORTANT: Be strict in your evaluation. If there's any doubt about accuracy, re
             response = client.chat.completions.create(
                 model=self.openai_model,
                 messages=[
-                    {"role": "system", "content": "You are a strict fact-checking expert who prioritizes accuracy over creativity. You must reject any content that contains unverified claims, hallucinated information, or facts not supported by the source material."},
+                    {"role": "system", "content": "You are a strict fact-checking expert who prioritizes accuracy over creativity. You must reject any content that contains unverified claims, hallucinated information, or facts not supported by the source material. You must respond with valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,  # Low temperature for more consistent validation
@@ -158,15 +158,39 @@ IMPORTANT: Be strict in your evaluation. If there's any doubt about accuracy, re
             )
             
             response_text = response.choices[0].message.content
+            logger.info(f"Validation response: {response_text[:200]}...")  # Log first 200 chars for debugging
+            
+            # Clean the response text to extract JSON
+            cleaned_response = response_text.strip()
+            
+            # Remove markdown code blocks if present
+            if cleaned_response.startswith('```json'):
+                cleaned_response = cleaned_response[7:]  # Remove ```json
+            elif cleaned_response.startswith('```'):
+                cleaned_response = cleaned_response[3:]  # Remove ```
+            
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]  # Remove trailing ```
+            
+            cleaned_response = cleaned_response.strip()
+            
             try:
-                validation_result = json.loads(response_text)
-            except json.JSONDecodeError:
+                validation_result = json.loads(cleaned_response)
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error: {e}")
+                logger.error(f"Cleaned response: {cleaned_response}")
+                # Try to extract JSON using regex as fallback
                 import re
-                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
                 if json_match:
-                    validation_result = json.loads(json_match.group())
+                    try:
+                        validation_result = json.loads(json_match.group())
+                        logger.info("Successfully extracted JSON using regex")
+                    except json.JSONDecodeError:
+                        logger.error("Failed to parse JSON even with regex extraction")
+                        return False
                 else:
-                    logger.error("Could not parse validation response as JSON")
+                    logger.error("Could not find JSON pattern in response")
                     return False
             
             is_accurate = validation_result.get('is_accurate', False)
@@ -397,56 +421,41 @@ IMPORTANT: Your response must be a properly formatted JSON object with no additi
         articles_to_process = [a for a in articles if a.get('link') not in self.processed_urls]
         for idx, article in enumerate(articles_to_process):
             url = article.get('link')
-            max_attempts = 3  # Maximum attempts to generate a valid blog post
             
-            for attempt in range(1, max_attempts + 1):
-                if attempt == 1:
-                    blog_post = self.generate_blog_post_with_chatgpt(article)
+            # Generate blog post (no validation)
+            blog_post = self.generate_blog_post_with_chatgpt(article)
+            
+            if blog_post:
+                logger.info(f"Blog post generated successfully")
+                # Generate image using Together API
+                slug = self._slugify(blog_post['title']) if blog_post.get('title') else 'untitled'
+                image_filename = f"{slug}_thumbnail.png"
+                image_path = self.output_dir / image_filename
+                image_file_path = self.generate_image_with_together(
+                    prompt=blog_post.get('thumbnail_prompt', ''),
+                    steps=1,  # steps must be between 1 and 4 for this model
+                    n=1,
+                    out_path=image_path
+                )
+                if image_file_path:
+                    blog_post['thumbnail_image'] = image_file_path
                 else:
-                    blog_post = self.regenerate_blog_post_with_chatgpt(article, attempt)
-                
-                if blog_post:
-                    # Validate the generated blog post
-                    is_valid = self.validate_blog_post_with_chatgpt(article, blog_post)
-                    
-                    if is_valid:
-                        logger.info(f"Blog post validation passed on attempt {attempt}")
-                        # Generate image using Together API
-                        slug = self._slugify(blog_post['title']) if blog_post.get('title') else 'untitled'
-                        image_filename = f"{slug}_thumbnail.png"
-                        image_path = self.output_dir / image_filename
-                        image_file_path = self.generate_image_with_together(
-                            prompt=blog_post.get('thumbnail_prompt', ''),
-                            steps=1,  # steps must be between 1 and 4 for this model
-                            n=1,
-                            out_path=image_path
-                        )
-                        if image_file_path:
-                            blog_post['thumbnail_image'] = image_file_path
-                        else:
-                            blog_post['thumbnail_image'] = None
+                    blog_post['thumbnail_image'] = None
+                self.save_blog_post(blog_post)
+                # Upload to WordPress if not already uploaded
+                uploaded_flag = blog_post.get('uploaded_to_wordpress', False)
+                if not uploaded_flag:
+                    success = self.upload_to_wordpress(blog_post)
+                    if success:
+                        blog_post['uploaded_to_wordpress'] = True
                         self.save_blog_post(blog_post)
-                        # Upload to WordPress if not already uploaded
-                        uploaded_flag = blog_post.get('uploaded_to_wordpress', False)
-                        if not uploaded_flag:
-                            success = self.upload_to_wordpress(blog_post)
-                            if success:
-                                blog_post['uploaded_to_wordpress'] = True
-                                self.save_blog_post(blog_post)
-                        self.mark_url_processed(url)
-                        print(f"\nBlog post '{blog_post['title']}' created and validated successfully.")
-                        break
-                    else:
-                        logger.warning(f"Blog post validation failed on attempt {attempt}")
-                        if attempt == max_attempts:
-                            logger.error(f"Failed to generate valid blog post after {max_attempts} attempts for article: {article['title']}")
-                            print(f"Failed to generate valid blog post for article: {article['title']}")
-                        else:
-                            logger.info(f"Retrying blog post generation (attempt {attempt + 1})")
-                else:
-                    logger.error(f"Failed to generate blog post on attempt {attempt}")
-                    if attempt == max_attempts:
-                        print(f"Failed to generate blog post for article: {article['title']}")
+                self.mark_url_processed(url)
+                print(f"\nBlog post '{blog_post['title']}' created successfully.")
+            else:
+                logger.error(f"Failed to generate blog post for article: {article['title']}")
+                print(f"Failed to generate blog post for article: {article['title']}")
+                # Mark as processed to avoid retrying the same article
+                self.mark_url_processed(url)
             
             # Wait 1 minute only if there are more articles to process
             if idx < len(articles_to_process) - 1:
