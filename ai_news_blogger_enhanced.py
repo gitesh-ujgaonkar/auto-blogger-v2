@@ -14,6 +14,8 @@ from together import Together
 import base64
 import threading
 
+load_dotenv() 
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
