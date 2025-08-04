@@ -14,8 +14,6 @@ from together import Together
 import base64
 import threading
 
-load_dotenv() 
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -23,18 +21,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Embedded API Keys and Credentials
+OPENAI_API_KEY = "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"
+TOGETHER_API_KEY = "ea8bf961c3ba4a4a006a648a8cc55caaa53b43f3543b6f95224c3c9a07cbb1df"
+WP_SITE_URL = "https://autoblog2.amartglobal.in"
+WP_USERNAME = "admin"
+WP_APP_PASSWORD = "Sjqp CdFY 2aka RfFi uOs7 BVnk"
+
 class ChatGPTBlogGenerator:
-    def __init__(self, openai_api_key: str, output_dir: str = "blog_posts"):
-        self.openai_api_key = openai_api_key
-        openai.api_key = openai_api_key
+    def __init__(self, openai_api_key: str = None, output_dir: str = "blog_posts"):
+        # Use embedded key if none provided
+        self.openai_api_key = openai_api_key or OPENAI_API_KEY
+        openai.api_key = self.openai_api_key
         self.openai_model = "gpt-4o"
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
-        # Together API setup
-        together_api_key = os.getenv('TOGETHER_API_KEY')
-        if not together_api_key:
-            raise ValueError("TOGETHER_API_KEY environment variable not set")
-        self.together_client = Together(api_key=together_api_key)
+        # Together API setup with embedded key
+        self.together_client = Together(api_key=TOGETHER_API_KEY)
         self.together_model = "black-forest-labs/FLUX.1-schnell-Free"
         # Processed URLs file
         self.processed_urls_file = self.output_dir / "processed_urls.txt"
@@ -319,13 +322,9 @@ IMPORTANT: Your response must be a properly formatted JSON object with no additi
         return filepath
 
     def upload_to_wordpress(self, blog_post):
-        # Get WordPress credentials from environment variables
-        WP_SITE_URL = os.getenv('WP_SITE_URL')
-        WP_USERNAME = os.getenv('WP_USERNAME')
-        WP_APP_PASSWORD = os.getenv('WP_APP_PASSWORD')
-        
+        # Use embedded WordPress credentials
         if not all([WP_SITE_URL, WP_USERNAME, WP_APP_PASSWORD]):
-            logger.error("WordPress credentials not found in environment variables")
+            logger.error("WordPress credentials not properly configured")
             return False
 
         # 1. Upload the thumbnail image (if present)
@@ -456,10 +455,8 @@ IMPORTANT: Your response must be a properly formatted JSON object with no additi
             time.sleep(2)  # Be nice to APIs
 
 def main():
-    openai_api_key = os.getenv('OPENAI_API_KEY')
-    if not openai_api_key:
-        raise ValueError("OPENAI_API_KEY environment variable not set")
-    generator = ChatGPTBlogGenerator(openai_api_key)
+    # Use embedded OpenAI API key
+    generator = ChatGPTBlogGenerator(OPENAI_API_KEY)
     generator.run()
 
 if __name__ == "__main__":
