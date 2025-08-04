@@ -1,0 +1,1 @@
+worker: python ai_news_blogger_enhanced.py 
