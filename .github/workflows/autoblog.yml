@@ -24,4 +24,5 @@ jobs:
 
       - name: Run Blogger Script
         run: |
+          export $(cat .env | xargs)
           python ai_news_blogger_enhanced.py
