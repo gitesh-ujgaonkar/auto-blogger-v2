@@ -1,0 +1,27 @@
+name: Auto Blogger
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"  # Every 4 hours UTC
+  workflow_dispatch:  # Optional manual trigger
+
+jobs:
+  run-blogger:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'  # Change if needed
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Blogger Script
+        run: |
+          python ai_news_blogger_enhanced.py
