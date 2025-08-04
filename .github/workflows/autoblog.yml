@@ -24,5 +24,4 @@ jobs:
 
       - name: Run Blogger Script
         run: |
-          export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
           python ai_news_blogger_enhanced.py
